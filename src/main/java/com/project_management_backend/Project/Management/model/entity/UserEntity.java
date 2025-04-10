@@ -27,8 +27,8 @@ public class UserEntity {
     @Column(name = "password", nullable = false)
     private String password;
 
-    @Column(name = "role")
-    @Enumerated(EnumType.STRING)
+    @Column(name = "role_id")
+    @Enumerated(EnumType.ORDINAL)
     private Role role;
 
     @ManyToOne(fetch = FetchType.LAZY)

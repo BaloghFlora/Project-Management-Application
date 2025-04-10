@@ -1,0 +1,106 @@
+package com.project_management_backend.Project.Management.security.filter;
+
+import java.io.IOException;
+import java.time.ZonedDateTime;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.project_management_backend.Project.Management.exception.model.ExceptionBody;
+import com.project_management_backend.Project.Management.exception.model.ExceptionCode;
+import com.project_management_backend.Project.Management.model.dto.auth.LoginRequestDTO;
+import com.project_management_backend.Project.Management.security.util.SecurityConstants;
+import com.project_management_backend.Project.Management.security.util.SecurityProperties;
+import com.project_management_backend.Project.Management.security.util.SecurityUtil;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.stereotype.Component;
+
+@Slf4j
+@Component
+public class LoginFilter extends UsernamePasswordAuthenticationFilter {
+
+    private final SecurityProperties securityProperties;
+    private final ObjectMapper objectMapper;
+
+    public LoginFilter(
+            AuthenticationManager authenticationManager,
+            SecurityProperties securityProperties,
+            ObjectMapper objectMapper
+    ) {
+        super(authenticationManager);
+        setFilterProcessesUrl(SecurityConstants.LOGIN_URL);
+        this.securityProperties = securityProperties;
+        this.objectMapper = objectMapper;
+    }
+
+    @Override
+    public Authentication attemptAuthentication(HttpServletRequest request, HttpServletResponse response) {
+        try {
+            LoginRequestDTO authenticationRequest = objectMapper.readValue(
+                    request.getInputStream(),
+                    LoginRequestDTO.class
+            );
+            Authentication authentication = new UsernamePasswordAuthenticationToken(
+                    authenticationRequest.email(),
+                    authenticationRequest.password()
+            );
+
+            return getAuthenticationManager().authenticate(authentication);
+        } catch (Exception e) {
+            log.error(e.getMessage());
+
+            throw new BadCredentialsException(e.getMessage());
+        }
+    }
+
+    @Override
+    protected void successfulAuthentication(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            FilterChain chain,
+            Authentication authResult
+    ) {
+        String accessToken = SecurityUtil.generateJwtToken(
+                ((User) authResult.getPrincipal()).getUsername(),
+                authResult.getAuthorities(),
+                securityProperties.getTokenExpirationDays(),
+                securityProperties.getSecretKey()
+        );
+        response.addCookie(SecurityUtil.buildCookie(
+                SecurityConstants.JWT_TOKEN,
+                accessToken,
+                securityProperties.getTokenExpirationDays()
+        ));
+        response.setStatus(HttpStatus.OK.value());
+    }
+
+    @Override
+    protected void unsuccessfulAuthentication(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            AuthenticationException failed
+    ) throws IOException {
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setStatus(HttpStatus.UNAUTHORIZED.value());
+
+        objectMapper.writeValue(response.getWriter(), getExceptionBody(failed.getMessage()));
+    }
+
+    private ExceptionBody getExceptionBody(String message) {
+        return ExceptionBody.builder()
+                .timestamp(ZonedDateTime.now())
+                .message(message)
+                .code(ExceptionCode.INVALID_CREDENTIALS.getCode())
+                .build();
+    }
+}
