@@ -4,7 +4,7 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/proj_db
     username: postgres
-    password: postgres
+    password: Barbi_2003
   flyway:
     enabled: true
     locations:
