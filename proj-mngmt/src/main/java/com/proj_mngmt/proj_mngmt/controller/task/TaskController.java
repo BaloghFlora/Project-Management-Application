@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.nio.file.AccessDeniedException;
 
+@CrossOrigin(origins = "http://localhost:4200")
 @RequestMapping("/v1/tasks")
 @Tag(name = "Task Management", description = "Operations for managing tasks")
 

@@ -1,5 +1,6 @@
 package com.proj_mngmt.proj_mngmt.security.config;
 
+import com.proj_mngmt.proj_mngmt.config.CorsFilter;
 import com.proj_mngmt.proj_mngmt.security.filter.AuthorizationFilter;
 import com.proj_mngmt.proj_mngmt.security.filter.LoginFilter;
 import com.proj_mngmt.proj_mngmt.security.util.SecurityConstants;
@@ -20,6 +21,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfigurationSource;
 
 @Configuration
 @EnableWebSecurity
@@ -33,10 +35,12 @@ public class SecurityConfig {
             LoginFilter loginFilter,
             AuthorizationFilter authorizationFilter,
             AuthenticationEntryPoint authenticationEntryPoint,
-            AuthenticationManager authenticationManager
+            AuthenticationManager authenticationManager,
+            CorsConfigurationSource corsConfigurationSource,
+            CorsFilter corsFilter
     ) throws Exception {
         return http
-
+                .cors(cors -> cors.configurationSource(corsConfigurationSource))
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS))

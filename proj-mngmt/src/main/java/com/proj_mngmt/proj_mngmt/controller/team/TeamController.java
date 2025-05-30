@@ -10,7 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.bind.annotation.RequestMapping;
-
+@CrossOrigin(origins = "http://localhost:4200")
 @RequestMapping("/v1/teams")
 @Tag(name = "Team Management", description = "Operations for managing teams")
 public interface TeamController {
