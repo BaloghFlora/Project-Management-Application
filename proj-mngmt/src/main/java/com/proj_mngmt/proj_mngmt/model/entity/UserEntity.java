@@ -29,7 +29,7 @@ public class UserEntity {
 
     @Column(name = "role_id")
     @Enumerated(EnumType.ORDINAL)
-    private Role role;
+    private Role role = Role.TEAM_MEMBER;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "team_id")
