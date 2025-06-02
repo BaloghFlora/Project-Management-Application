@@ -20,6 +20,7 @@ public class UserServiceBean implements UserService {
     private final UserRepository userRepository;
     private final UserMapper userMapper;
 
+
     @Override
     public UserResponseDTO findByEmail(String email) {
         log.debug("Finding user by email: {}", email);
@@ -27,10 +28,17 @@ public class UserServiceBean implements UserService {
         UserEntity user = userRepository.findByEmail(email)
                 .orElseThrow(() -> {
                     log.error("User not found with email: {}", email);
-                    return new DataNotFoundException(ExceptionCode.CHEF_NOT_FOUND, email);
+                    return new DataNotFoundException(ExceptionCode.USER_NOT_FOUND, email);
                 });
 
-        return userMapper.convertEntityToResponseDto(user);
+        // Debug logging to check team data
+        log.debug("Found user: {} with team: {}", user.getName(),
+                user.getTeam() != null ? user.getTeam().getTeamName() : "NO TEAM");
+
+        UserResponseDTO response = userMapper.convertEntityToResponseDto(user);
+        log.debug("Mapped response - teamId: {}, teamName: {}", response.teamId(), response.teamName());
+
+        return response;
     }
 
     @Override
@@ -40,9 +48,16 @@ public class UserServiceBean implements UserService {
         UserEntity user = userRepository.findById(id)
                 .orElseThrow(() -> {
                     log.error("User not found with id: {}", id);
-                    return new DataNotFoundException(ExceptionCode.CHEF_NOT_FOUND, id);
+                    return new DataNotFoundException(ExceptionCode.USER_NOT_FOUND, id);
                 });
 
-        return userMapper.convertEntityToResponseDto(user);
+        // Debug logging to check team data
+        log.debug("Found user: {} with team: {}", user.getName(),
+                user.getTeam() != null ? user.getTeam().getTeamName() : "NO TEAM");
+
+        UserResponseDTO response = userMapper.convertEntityToResponseDto(user);
+        log.debug("Mapped response - teamId: {}, teamName: {}", response.teamId(), response.teamName());
+
+        return response;
     }
 }

@@ -4,18 +4,20 @@ import com.proj_mngmt.proj_mngmt.model.dto.CollectionResponseDTO;
 import com.proj_mngmt.proj_mngmt.model.dto.task.TaskRequestDTO;
 import com.proj_mngmt.proj_mngmt.model.dto.task.TaskResponseDTO;
 import com.proj_mngmt.proj_mngmt.model.entity.ProjectEntity;
+import com.proj_mngmt.proj_mngmt.model.entity.Role;
 import com.proj_mngmt.proj_mngmt.model.entity.TaskEntity;
 import com.proj_mngmt.proj_mngmt.model.entity.UserEntity;
 import com.proj_mngmt.proj_mngmt.model.mapper.TaskMapper;
 import com.proj_mngmt.proj_mngmt.repository.ProjectRepository;
 import com.proj_mngmt.proj_mngmt.repository.TaskRepository;
 import com.proj_mngmt.proj_mngmt.repository.UserRepository;
-import com.proj_mngmt.proj_mngmt.security.service.user.UserDetailsServiceBean;
-import com.proj_mngmt.proj_mngmt.security.service.user.UserDetailsServiceBean;
 import jakarta.persistence.EntityNotFoundException;
-import lombok.AllArgsConstructor;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -25,7 +27,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.stream.Collectors;
 
-@AllArgsConstructor
+@Slf4j
+@RequiredArgsConstructor
 @Service
 public class TaskServiceBean implements TaskService {
 
@@ -34,10 +37,12 @@ public class TaskServiceBean implements TaskService {
     private final UserRepository userRepository;
     private final TaskMapper taskMapper;
 
-
     @Override
     public CollectionResponseDTO<TaskResponseDTO> findAll(int page, int size) {
-        Page<TaskEntity> tasksPage = taskRepository.findAll(PageRequest.of(page, size));
+        log.debug("Finding all tasks - page: {}, size: {}", page, size);
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by("id").descending());
+        Page<TaskEntity> tasksPage = taskRepository.findAll(pageable);
 
         List<TaskResponseDTO> taskDTOs = tasksPage.getContent().stream()
                 .map(taskMapper::convertEntityToResponseDto)
@@ -54,67 +59,65 @@ public class TaskServiceBean implements TaskService {
 
     @Override
     public CollectionResponseDTO<TaskResponseDTO> findByProjectId(Integer projectId, int page, int size) {
-        // Check if project exists
+        log.debug("Finding tasks by project ID: {} - page: {}, size: {}", projectId, page, size);
+
+        // Verify project exists
         if (!projectRepository.existsById(projectId)) {
             throw new EntityNotFoundException("Project not found with ID: " + projectId);
         }
 
-        List<TaskEntity> tasks = taskRepository.findByProjectId(projectId);
+        Pageable pageable = PageRequest.of(page, size, Sort.by("id").descending());
+        Page<TaskEntity> tasksPage = taskRepository.findByProjectIdWithDetails(projectId, pageable);
 
-        List<TaskResponseDTO> taskDTOs = tasks.stream()
+        List<TaskResponseDTO> taskDTOs = tasksPage.getContent().stream()
                 .map(taskMapper::convertEntityToResponseDto)
                 .collect(Collectors.toList());
-
-        // Manually handle pagination
-        int start = page * size;
-        int end = Math.min(start + size, taskDTOs.size());
-        List<TaskResponseDTO> paginatedTasks = start < taskDTOs.size() ? taskDTOs.subList(start, end) : List.of();
 
         return CollectionResponseDTO.<TaskResponseDTO>builder()
                 .pageNumber(page)
                 .pageSize(size)
-                .totalPages((taskDTOs.size() + size - 1) / size)
-                .totalElements(taskDTOs.size())
-                .elements(paginatedTasks)
+                .totalPages(tasksPage.getTotalPages())
+                .totalElements(tasksPage.getTotalElements())
+                .elements(taskDTOs)
                 .build();
     }
 
     @Override
     public CollectionResponseDTO<TaskResponseDTO> findByAssignedUserId(Integer userId, int page, int size) throws AccessDeniedException {
-        // Check if user exists
-        if (!userRepository.existsById(userId)) {
-            throw new EntityNotFoundException("User not found with ID: " + userId);
-        }
+        log.debug("Finding tasks by assigned user ID: {} - page: {}, size: {}", userId, page, size);
 
-        // Check if current user is the user or has admin/project manager role
+        // Verify user exists
+        UserEntity targetUser = userRepository.findById(userId)
+                .orElseThrow(() -> new EntityNotFoundException("User not found with ID: " + userId));
+
+        // Check permissions
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        UserEntity currentUser = getCurrentUser(authentication);
 
-        if (!authentication.getAuthorities().stream().anyMatch(a ->
-                        a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_PROJECT_MANAGER"))) {
-            throw new AccessDeniedException("Access denied");
+        if (!canViewUserTasks(currentUser, targetUser)) {
+            throw new AccessDeniedException("You do not have permission to view tasks for this user");
         }
 
-        List<TaskEntity> tasks = taskRepository.findByAssignedUserId(userId);
+        Pageable pageable = PageRequest.of(page, size, Sort.by("id").descending());
+        Page<TaskEntity> tasksPage = taskRepository.findByAssignedUserIdWithDetails(userId, pageable);
 
-        List<TaskResponseDTO> taskDTOs = tasks.stream()
+        List<TaskResponseDTO> taskDTOs = tasksPage.getContent().stream()
                 .map(taskMapper::convertEntityToResponseDto)
                 .collect(Collectors.toList());
-
-        // Manual pagination
-        int start = page * size;
-        int end = Math.min(start + size, taskDTOs.size());
-        List<TaskResponseDTO> paginatedTasks = start < taskDTOs.size() ? taskDTOs.subList(start, end) : List.of();
 
         return CollectionResponseDTO.<TaskResponseDTO>builder()
                 .pageNumber(page)
                 .pageSize(size)
-                .totalPages((taskDTOs.size() + size - 1) / size)
-                .totalElements(taskDTOs.size())
-                .elements(paginatedTasks)
+                .totalPages(tasksPage.getTotalPages())
+                .totalElements(tasksPage.getTotalElements())
+                .elements(taskDTOs)
                 .build();
     }
 
+    @Override
     public TaskResponseDTO findById(Integer id) {
+        log.debug("Finding task by ID: {}", id);
+
         TaskEntity task = taskRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Task not found with ID: " + id));
 
@@ -122,7 +125,12 @@ public class TaskServiceBean implements TaskService {
     }
 
     @Transactional
+    @Override
     public TaskResponseDTO save(TaskRequestDTO taskRequestDTO) {
+        log.debug("Creating new task: {}", taskRequestDTO.taskName());
+
+        validateTaskRequest(taskRequestDTO);
+
         TaskEntity task = taskMapper.convertRequestDtoToEntity(taskRequestDTO);
 
         // Set project if provided
@@ -130,72 +138,126 @@ public class TaskServiceBean implements TaskService {
             ProjectEntity project = projectRepository.findById(taskRequestDTO.projectId())
                     .orElseThrow(() -> new EntityNotFoundException("Project not found with ID: " + taskRequestDTO.projectId()));
             task.setProject(project);
+
+            // Verify current user has access to this project
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            UserEntity currentUser = getCurrentUser(authentication);
+            if (!canAccessProject(currentUser, project)) {
+                throw new AccessDeniedException("You do not have access to this project");
+            }
         }
 
         // Set assigned user if provided
         if (taskRequestDTO.assignedUserId() != null) {
-            UserEntity user = userRepository.findById(taskRequestDTO.assignedUserId())
+            UserEntity assignedUser = userRepository.findById(taskRequestDTO.assignedUserId())
                     .orElseThrow(() -> new EntityNotFoundException("User not found with ID: " + taskRequestDTO.assignedUserId()));
-            task.setAssignedUser(user);
+            task.setAssignedUser(assignedUser);
         }
 
         TaskEntity savedTask = taskRepository.save(task);
+        log.info("Task created successfully with ID: {}", savedTask.getId());
+
         return taskMapper.convertEntityToResponseDto(savedTask);
     }
 
     @Transactional
+    @Override
     public TaskResponseDTO update(Integer id, TaskRequestDTO taskRequestDTO) throws AccessDeniedException {
+        log.debug("Updating task ID: {} with data: {}", id, taskRequestDTO.taskName());
+
         TaskEntity task = taskRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Task not found with ID: " + id));
 
-        // Check permissions - only admin, project manager, or the assigned user can update
+        // Check permissions
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        UserEntity currentUser = getCurrentUser(authentication);
 
-        boolean isAdmin = authentication.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
-        boolean isProjectManager = authentication.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_PROJECT_MANAGER"));
-
-        if (!isAdmin && !isProjectManager) {
+        if (!canModifyTask(currentUser, task)) {
             throw new AccessDeniedException("You do not have permission to update this task");
         }
 
+        validateTaskRequest(taskRequestDTO);
+
+        // Update basic fields
         taskMapper.updateTaskEntity(task, taskRequestDTO);
 
-        // Update project if changed
-        if (taskRequestDTO.projectId() != null) {
-            ProjectEntity project = projectRepository.findById(taskRequestDTO.projectId())
-                    .orElseThrow(() -> new EntityNotFoundException("Project not found with ID: " + taskRequestDTO.projectId()));
-            task.setProject(project);
-        }
 
-        // Update assigned user if changed
-        if (taskRequestDTO.assignedUserId() != null) {
-            UserEntity user = userRepository.findById(taskRequestDTO.assignedUserId())
-                    .orElseThrow(() -> new EntityNotFoundException("User not found with ID: " + taskRequestDTO.assignedUserId()));
-            task.setAssignedUser(user);
-        }
 
         TaskEntity updatedTask = taskRepository.save(task);
+        log.info("Task updated successfully: {}", updatedTask.getId());
+
         return taskMapper.convertEntityToResponseDto(updatedTask);
     }
 
     @Transactional
+    @Override
     public void delete(Integer id) throws AccessDeniedException {
+        log.debug("Deleting task ID: {}", id);
+
         TaskEntity task = taskRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Task not found with ID: " + id));
 
-        // Check permissions - only admin or project manager can delete
+        // Check permissions
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        boolean isAdmin = authentication.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
-        boolean isProjectManager = authentication.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_PROJECT_MANAGER"));
+        UserEntity currentUser = getCurrentUser(authentication);
 
-        if (!isAdmin && !isProjectManager) {
+        if (!canDeleteTask(currentUser, task)) {
             throw new AccessDeniedException("You do not have permission to delete this task");
         }
 
         taskRepository.delete(task);
+        log.info("Task deleted successfully: {}", id);
+    }
+
+    // Helper methods for permission checking
+    private UserEntity getCurrentUser(Authentication authentication) {
+        return userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new EntityNotFoundException("Current user not found"));
+    }
+
+    private boolean canViewUserTasks(UserEntity currentUser, UserEntity targetUser) {
+        // Admin and Project Managers can view anyone's tasks
+        if (currentUser.getRole() == Role.ADMIN || currentUser.getRole() == Role.PROJECT_MANAGER) {
+            return true;
+        }
+
+        // Users can view their own tasks
+        return currentUser.getId().equals(targetUser.getId());
+    }
+
+    private boolean canAccessProject(UserEntity user, ProjectEntity project) {
+        // Admin can access any project
+        if (user.getRole() == Role.ADMIN) {
+            return true;
+        }
+
+        // Project managers and team members can access projects in their team
+        return user.getTeam() != null && user.getTeam().getId().equals(project.getTeam().getId());
+    }
+
+    private boolean canModifyTask(UserEntity user, TaskEntity task) {
+        // Admin and Project Managers can modify any task
+        if (user.getRole() == Role.ADMIN || user.getRole() == Role.PROJECT_MANAGER) {
+            return true;
+        }
+
+        // Team members can modify tasks assigned to them
+        return task.getAssignedUser() != null && task.getAssignedUser().getId().equals(user.getId());
+    }
+
+    private boolean canDeleteTask(UserEntity user, TaskEntity task) {
+        // Only Admin and Project Managers can delete tasks
+        return user.getRole() == Role.ADMIN || user.getRole() == Role.PROJECT_MANAGER;
+    }
+
+    private void validateTaskRequest(TaskRequestDTO taskRequestDTO) {
+        if (taskRequestDTO.taskName() == null || taskRequestDTO.taskName().trim().isEmpty()) {
+            throw new IllegalArgumentException("Task name is required");
+        }
+
+        // Add more validation as needed
+        if (taskRequestDTO.status() == null || taskRequestDTO.status().trim().isEmpty()) {
+            throw new IllegalArgumentException("Task status is required");
+        }
     }
 }
